@@ -39,6 +39,9 @@ private:
 
     // Функция для вычисления хеша транзакции
     QString calculateHash(const QString &previousHash, const Transaction &transaction);
+
+    static unsigned char* staticKey;
+    static unsigned char* readKeyFromFile(const QString& filePath);
 };
 
 #endif // MAINWINDOW_H

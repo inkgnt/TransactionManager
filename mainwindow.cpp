@@ -16,24 +16,55 @@
 
 #include <QDebug>
 
+
+unsigned char* MainWindow::staticKey = nullptr;
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
-
+    staticKey = readKeyFromFile(QDir::homePath() + "/Desktop/key.txt");
 
     encryptAndSaveTransactions();
 
     loadTransactionsFromFile(QDir::homePath() + "/Desktop/encrypted_trans.json", transactions);
     displayTransactions();
     connect(ui->pushButton, &QPushButton::clicked, this, &MainWindow::onOpenButtonClicked);
-
 }
 
 MainWindow::~MainWindow()
 {
     delete ui;
+
+    if (staticKey) {
+        delete[] staticKey;
+        staticKey = nullptr;
+    }
+}
+
+unsigned char* MainWindow::readKeyFromFile(const QString& filePath) {
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly)) {
+        qWarning() << "Ошибка при открытии файла с ключом";
+        return nullptr;
+    }
+
+    QByteArray keyData = file.readAll();
+    file.close();
+
+    keyData = keyData.trimmed();
+
+    if (keyData.size() != 64) {
+        qWarning() << "Неверный формат ключа, ожидается 64 символа для AES-256";
+        return nullptr;
+    }
+
+    QByteArray key = QByteArray::fromHex(keyData);
+
+    unsigned char* keyArray = new unsigned char[key.size()];
+    std::memcpy(keyArray, key.data(), key.size());
+
+    return keyArray;
 }
 
 void MainWindow::encryptAndSaveTransactions() {
@@ -45,11 +76,8 @@ void MainWindow::encryptAndSaveTransactions() {
 
     QByteArray data = file.readAll();
     file.close();
-    QByteArray pinBytes = "1234";
-    unsigned char key[SHA256_DIGEST_LENGTH];
-    SHA256(reinterpret_cast<const unsigned char*>(pinBytes.constData()), pinBytes.size(), key);
 
-    QByteArray encryptedData = encryptAES256(data, key);
+    QByteArray encryptedData = encryptAES256(data, staticKey);
     QByteArray encryptedHex = encryptedData.toHex();
 
     QFile outFile(QDir::homePath() + "/Desktop/encrypted_trans.json");
@@ -79,12 +107,7 @@ void MainWindow::loadTransactionsFromFile(const QString &fileName, QList<Transac
     }
 
     QByteArray encryptedData = QByteArray::fromHex(file.readAll());
-    QByteArray pinBytes = "1234";
-    unsigned char key[SHA256_DIGEST_LENGTH];
-    SHA256(reinterpret_cast<const unsigned char*>(pinBytes.constData()), pinBytes.size(), key);
-
-
-    QByteArray decryptedData = decryptAES256(encryptedData, key);
+    QByteArray decryptedData = decryptAES256(encryptedData, staticKey);
 
     QJsonDocument doc = QJsonDocument::fromJson(decryptedData);
 
