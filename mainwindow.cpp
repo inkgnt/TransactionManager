@@ -10,12 +10,19 @@
 #include <openssl/sha.h>
 #include "transaction.h"
 #include "ui_mainwindow.h"
+#include <QFileDialog>
+#include <QFileDialog>
+#include <QMessageBox>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
+    loadTransactionsFromFile(QDir::homePath() + "/Desktop/trans.json", transactions);
+    displayTransactions();
+    connect(ui->pushButton, &QPushButton::clicked, this, &MainWindow::onOpenButtonClicked);
+
 }
 
 MainWindow::~MainWindow()
@@ -23,13 +30,80 @@ MainWindow::~MainWindow()
     delete ui;
 }
 
+void MainWindow::onOpenButtonClicked() {
+    QString fileName = QFileDialog::getOpenFileName(this, "Open", QDir::homePath() + "/Desktop", "JSON Files (*.json)");
+    if (!fileName.isEmpty()) {
+        transactions.clear();
+        loadTransactionsFromFile(fileName, transactions);
+        displayTransactions();
+    }
+}
 
-QString calculateHash(const QString &previousHash, const Transaction &transaction) {
+void MainWindow::loadTransactionsFromFile(const QString &fileName, QList<Transaction> &transactions) {
+    QFile file(fileName);
+    if (!file.open(QIODevice::ReadOnly)) {
+        qWarning() << "Ошибка при открытии файла";
+        return;
+    }
+
+    QByteArray encryptedData = file.readAll();
+    //допустим я где-то тут расшифровываю данные считанные из файла и передаю дальше
+
+    QJsonDocument doc = QJsonDocument::fromJson(encryptedData);
+    if (doc.isArray()) {
+        QJsonArray array = doc.array();
+        for (int i = 0; i < array.size(); ++i) {
+            QJsonObject obj = array[i].toObject();
+            Transaction tx = Transaction::fromJson(obj);
+            transactions.append(tx);
+        }
+    }
+}
+
+void MainWindow::displayTransactions() {
+    ui->listWidget->clear();
+
+    bool flag = false;
+    for (int i = 0; i < transactions.size(); ++i) {
+        const Transaction &tx = transactions[i];
+
+        QString displayText = QString("Amount: %1, Wallet: %2, Date: %3, Hash: %4")
+                                  .arg(tx.amount)
+                                  .arg(tx.walletNumber)
+                                  .arg(tx.date)
+                                  .arg(tx.hash);
+
+        QListWidgetItem *item = new QListWidgetItem(displayText, ui->listWidget);
+
+        if (i == 0) {
+            QString calculatedHash = calculateHash("", tx);
+            qDebug() << calculatedHash;
+            if (calculatedHash != tx.hash) {
+                flag = true;
+            }
+        } else {
+            const Transaction &prevTx = transactions[i - 1];
+            QString calculatedHash = calculateHash(prevTx.hash, tx);
+            qDebug() << calculatedHash;
+            if (calculatedHash != tx.hash) {
+                flag = true;
+            }
+        }
+
+        if (flag) {
+            item->setBackground(QBrush(Qt::red));
+        }
+
+        ui->listWidget->addItem(item);
+    }
+}
+
+QString MainWindow::calculateHash(const QString &previousHash, const Transaction &transaction) {
     QByteArray data = previousHash.toUtf8() + transaction.amount.toUtf8()
     + transaction.walletNumber.toUtf8() + transaction.date.toUtf8();
 
     unsigned char hash[SHA256_DIGEST_LENGTH];
-    EVP_MD_CTX *mdctx = EVP_MD_CTX_new();  // Создаем контекст для хеширования
+    EVP_MD_CTX *mdctx = EVP_MD_CTX_new();
     if (mdctx == nullptr) {
         return QString();
     }
@@ -51,33 +125,10 @@ QString calculateHash(const QString &previousHash, const Transaction &transactio
 
     EVP_MD_CTX_free(mdctx);
 
-    // Преобразуем хеш в строку hex-формата
     QByteArray hashHex = QByteArray(reinterpret_cast<char*>(hash), SHA256_DIGEST_LENGTH).toHex();
     return QString(hashHex);
 }
 
-// Функция для загрузки и проверки транзакций
-void loadTransactionsFromFile(const QString &fileName, QList<Transaction> &transactions) {
-    QFile file(fileName);
-    if (!file.open(QIODevice::ReadOnly)) {
-        qWarning() << "Ошибка при открытии файла";
-        return;
-    }
-
-    QByteArray encryptedData = file.readAll();
-    // Предположим, что файл расшифрован и передан в encryptedData
-    // Для этого примера будем использовать его как есть (если файл зашифрован, нужно дешифровать)
-
-    QJsonDocument doc = QJsonDocument::fromJson(encryptedData);
-    if (doc.isArray()) {
-        QJsonArray array = doc.array();
-        for (int i = 0; i < array.size(); ++i) {
-            QJsonObject obj = array[i].toObject();
-            Transaction tx = Transaction::fromJson(obj);
-            transactions.append(tx);
-        }
-    }
-}
 
 QByteArray iv= QByteArray::fromHex("1234567890abcdef0123456789abcdef");
 
