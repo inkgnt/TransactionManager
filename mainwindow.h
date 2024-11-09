@@ -19,6 +19,11 @@ public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
+    void initializeOpenSSL();
+    static QByteArray encryptAES256(const QByteArray& plaintext, const unsigned char* key);
+    static QByteArray decryptAES256(const QByteArray& ciphertext, const unsigned char* key);
+    static void encryptAndSaveTransactions();
+
 private slots:
     void onOpenButtonClicked();  // Слот для обработки нажатия кнопки "Открыть"
 

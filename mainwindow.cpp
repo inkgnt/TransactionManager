@@ -1,25 +1,31 @@
 #include "mainwindow.h"
 #include "./ui_mainwindow.h"
+#include "ui_mainwindow.h"
+#include "transaction.h"
 
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonArray>
-#include <QDebug>
 #include <openssl/aes.h>
 #include <openssl/evp.h>
 #include <openssl/sha.h>
-#include "transaction.h"
-#include "ui_mainwindow.h"
-#include <QFileDialog>
+#include <openssl/crypto.h>
 #include <QFileDialog>
 #include <QMessageBox>
+#include <openssl/err.h>
+
+#include <QDebug>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
 {
     ui->setupUi(this);
-    loadTransactionsFromFile(QDir::homePath() + "/Desktop/trans.json", transactions);
+
+
+    encryptAndSaveTransactions();
+
+    loadTransactionsFromFile(QDir::homePath() + "/Desktop/encrypted_trans.json", transactions);
     displayTransactions();
     connect(ui->pushButton, &QPushButton::clicked, this, &MainWindow::onOpenButtonClicked);
 
@@ -28,6 +34,32 @@ MainWindow::MainWindow(QWidget *parent)
 MainWindow::~MainWindow()
 {
     delete ui;
+}
+
+void MainWindow::encryptAndSaveTransactions() {
+    QFile file(QDir::homePath() + "/Desktop/trans.json");
+    if (!file.open(QIODevice::ReadOnly)) {
+        qWarning() << "Ошибка при открытии исходного файла";
+        return;
+    }
+
+    QByteArray data = file.readAll();
+    file.close();
+    QByteArray pinBytes = "1234";
+    unsigned char key[SHA256_DIGEST_LENGTH];
+    SHA256(reinterpret_cast<const unsigned char*>(pinBytes.constData()), pinBytes.size(), key);
+
+    QByteArray encryptedData = encryptAES256(data, key);
+    QByteArray encryptedHex = encryptedData.toHex();
+
+    QFile outFile(QDir::homePath() + "/Desktop/encrypted_trans.json");
+    if (!outFile.open(QIODevice::WriteOnly)) {
+        qWarning() << "Ошибка при открытии выходного файла";
+        return;
+    }
+
+    outFile.write(encryptedHex);
+    outFile.close();
 }
 
 void MainWindow::onOpenButtonClicked() {
@@ -46,10 +78,16 @@ void MainWindow::loadTransactionsFromFile(const QString &fileName, QList<Transac
         return;
     }
 
-    QByteArray encryptedData = file.readAll();
-    //допустим я где-то тут расшифровываю данные считанные из файла и передаю дальше
+    QByteArray encryptedData = QByteArray::fromHex(file.readAll());
+    QByteArray pinBytes = "1234";
+    unsigned char key[SHA256_DIGEST_LENGTH];
+    SHA256(reinterpret_cast<const unsigned char*>(pinBytes.constData()), pinBytes.size(), key);
 
-    QJsonDocument doc = QJsonDocument::fromJson(encryptedData);
+
+    QByteArray decryptedData = decryptAES256(encryptedData, key);
+
+    QJsonDocument doc = QJsonDocument::fromJson(decryptedData);
+
     if (doc.isArray()) {
         QJsonArray array = doc.array();
         for (int i = 0; i < array.size(); ++i) {
@@ -67,24 +105,24 @@ void MainWindow::displayTransactions() {
     for (int i = 0; i < transactions.size(); ++i) {
         const Transaction &tx = transactions[i];
 
-        QString displayText = QString("Amount: %1, Wallet: %2, Date: %3, Hash: %4")
-                                  .arg(tx.amount)
-                                  .arg(tx.walletNumber)
-                                  .arg(tx.date)
-                                  .arg(tx.hash);
+        QString displayText = QString::asprintf("Amount: %s, Wallet: %s, Date: %s, Hash: %s",
+                                                tx.amount.toUtf8().constData(),
+                                                tx.walletNumber.toUtf8().constData(),
+                                                tx.date.toUtf8().constData(),
+                                                tx.hash.toUtf8().constData());
 
         QListWidgetItem *item = new QListWidgetItem(displayText, ui->listWidget);
 
         if (i == 0) {
             QString calculatedHash = calculateHash("", tx);
-            qDebug() << calculatedHash;
+
             if (calculatedHash != tx.hash) {
                 flag = true;
             }
         } else {
             const Transaction &prevTx = transactions[i - 1];
             QString calculatedHash = calculateHash(prevTx.hash, tx);
-            qDebug() << calculatedHash;
+
             if (calculatedHash != tx.hash) {
                 flag = true;
             }
@@ -129,10 +167,9 @@ QString MainWindow::calculateHash(const QString &previousHash, const Transaction
     return QString(hashHex);
 }
 
-
 QByteArray iv= QByteArray::fromHex("1234567890abcdef0123456789abcdef");
 
-QByteArray encryptAES256(const QByteArray& plaintext, const unsigned char* key) {
+QByteArray MainWindow::encryptAES256(const QByteArray& plaintext, const unsigned char* key) {
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
     QByteArray ciphertext(plaintext.size() + AES_BLOCK_SIZE, Qt::Uninitialized);
 
@@ -169,7 +206,7 @@ QByteArray encryptAES256(const QByteArray& plaintext, const unsigned char* key) 
     return ciphertext;
 }
 
-QByteArray decryptAES256(const QByteArray& ciphertext, const unsigned char* key) {
+QByteArray MainWindow::decryptAES256(const QByteArray& ciphertext, const unsigned char* key) {
     EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
     QByteArray plaintext(ciphertext.size(), Qt::Uninitialized);
 
@@ -202,6 +239,5 @@ QByteArray decryptAES256(const QByteArray& ciphertext, const unsigned char* key)
     plaintext_len += len;
     plaintext.resize(plaintext_len);
     EVP_CIPHER_CTX_free(ctx);
-
     return plaintext;
 }
