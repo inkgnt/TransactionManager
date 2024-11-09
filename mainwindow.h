@@ -19,18 +19,21 @@ public:
     MainWindow(QWidget *parent = nullptr);
     ~MainWindow();
 
-    void initializeOpenSSL();
+    bool isValidTransactionInput();
     static QByteArray encryptAES256(const QByteArray& plaintext, const unsigned char* key);
     static QByteArray decryptAES256(const QByteArray& ciphertext, const unsigned char* key);
     static void encryptAndSaveTransactions();
 
 private slots:
-    void onOpenButtonClicked();  // Слот для обработки нажатия кнопки "Открыть"
+    void on_pushButton_1_clicked();
+    void on_pushButton_2_clicked();
+    void on_pushButton_3_clicked();
+    void on_pushButton_4_clicked();
+    void on_pushButton_5_clicked();
 
 private:
     Ui::MainWindow *ui;
-    QList<Transaction> transactions;  // Список транзакций
-
+    QList<Transaction> transactions;
     // Функция для загрузки транзакций из файла
     void loadTransactionsFromFile(const QString &fileName, QList<Transaction> &transactions);
 
